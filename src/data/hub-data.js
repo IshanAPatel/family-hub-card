@@ -1,6 +1,10 @@
 import { fetchEvents } from './calendar-source.js';
 import { fetchChores, completeChore } from './todo-source.js';
 import { readPoints, readCompletions, completionsForPerson } from './taskmate-source.js';
+import { buildTasks, progressOf } from './tasks.js';
+import { choreMeta } from './chore-meta.js';
+import { submitChore } from './taskmate-submit.js';
+import { readSessions, timerAction } from './timed.js';
 import { msUntilNextLocalMidnight } from './time.js';
 import { logFailure } from './log.js';
 
@@ -16,6 +20,10 @@ export class HubData {
     this._chores = {};
     this._failuresByPerson = {};
     this._inflight = null;
+    this._inflightScope = { events: false, chores: false };
+    this._queued = null;
+    this._lastCal = { events: [], failures: [], failuresByPerson: {} };
+    this._lastTodo = { choresByPerson: {}, failures: [], failuresByPerson: {} };
     this._windowDays = null;
     this._startOffset = 0;
     this.model = { people: [], staleSince: null, failures: [] };
@@ -32,7 +40,7 @@ export class HubData {
    * timeline would read as duplicates.
    */
   get windowDays() {
-    return this._windowDays ?? (this.config.view === 'week' ? 7 : 1);
+    return this._windowDays ?? (this.config.calendarView === 'day' ? 1 : 7);
   }
 
   /** Days to shift the fetch window by. Negative looks backwards. */
@@ -43,13 +51,14 @@ export class HubData {
   set startOffset(days) {
     if (this._startOffset === days) return;
     this._startOffset = days;
-    this.refresh();
+    // Only the event window moves; the to-do lists are not date-scoped.
+    this.refresh({ events: true, chores: false, stale: true });
   }
 
   set windowDays(days) {
     if (this._windowDays === days) return;
     this._windowDays = days;
-    this.refresh();
+    this.refresh({ events: true, chores: false, stale: true });
   }
 
   /** Every entity whose change should move something on screen. */
@@ -72,78 +81,109 @@ export class HubData {
    */
   hassChanged(prev) {
     const hass = this.getHass();
-    if (!hass) return;
+    if (!hass) return undefined;
 
-    let refetch = false;
+    let events = false;
+    let chores = false;
     let rebuild = false;
     for (const id of this.watchedEntities()) {
       if (prev?.states?.[id] === hass.states?.[id]) continue;
       // Calendars and to-do lists need a network round trip; sensors carry
       // everything we need in the state object already.
-      if (id.startsWith('calendar.') || id.startsWith('todo.')) refetch = true;
+      if (id.startsWith('calendar.')) events = true;
+      else if (id.startsWith('todo.')) chores = true;
       else rebuild = true;
     }
 
-    if (refetch) {
-      this.refresh();
-    } else if (rebuild) {
+    if (events || chores) {
+      // A ticked chore changes only the to-do entity, so it refetches only the
+      // to-do lists — not one HTTP call per calendar as well.
+      return this.refresh({ events, chores });
+    }
+    if (rebuild) {
       this._rebuild(hass);
       this.onChange();
     }
+    return undefined;
   }
 
-  /** Coalesces overlapping refreshes so a burst of state changes fetches once. */
-  async refresh() {
-    if (this._inflight) return this._inflight;
-    this._inflight = this._doRefresh().finally(() => {
+  /**
+   * Coalesces overlapping refreshes so a burst of state changes fetches once.
+   * A request arriving mid-flight for a source the running one skipped is
+   * queued and runs once, after it.
+   */
+  async refresh({ events = true, chores = true, stale = false } = {}) {
+    if (this._inflight) {
+      // `stale` means the request's parameters changed (window or paging), so
+      // the fetch already running is answering the wrong question and must be
+      // followed by another, not merged into it.
+      this._queued = {
+        events: (this._queued?.events || false) || (events && (stale || !this._inflightScope.events)),
+        chores: (this._queued?.chores || false) || (chores && (stale || !this._inflightScope.chores)),
+      };
+      return this._inflight;
+    }
+    this._inflightScope = { events, chores };
+    this._inflight = this._doRefresh({ events, chores }).finally(() => {
       this._inflight = null;
+      const queued = this._queued;
+      this._queued = null;
+      if (queued && (queued.events || queued.chores)) this.refresh(queued);
     });
     return this._inflight;
   }
 
-  async _doRefresh() {
+  async _doRefresh({ events, chores }) {
     const hass = this.getHass();
     const now = this.getNow();
     const { people, choreFilter } = this.config;
 
     const [cal, todo] = await Promise.all([
-      fetchEvents(hass, people, now, this._tz, this.windowDays, this._startOffset),
-      fetchChores(hass, people, choreFilter, now, this._tz),
+      events
+        ? fetchEvents(hass, people, now, this._tz, this.windowDays, this._startOffset)
+        : this._lastCal,
+      chores ? fetchChores(hass, people, choreFilter, now, this._tz) : this._lastTodo,
     ]);
+    this._lastCal = cal;
+    this._lastTodo = todo;
 
     // Keep last-good data per person, not per batch. Retaining all-or-nothing
     // means one broken entity blanks every other person's data too.
     const prevEvents = this._events;
     const prevChores = this._chores;
 
-    const calFailed = new Set(Object.keys(cal.failuresByPerson || {}));
-    this._events = [
-      ...cal.events.filter((e) => !calFailed.has(e.personId)),
-      // A person with one working and one broken calendar keeps their previous
-      // day rather than showing a half-populated one.
-      ...prevEvents.filter((e) => calFailed.has(e.personId)),
-    ].sort((a, b) => {
-      if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
-      return a.start - b.start;
-    });
+    if (events) {
+      const calFailed = new Set(Object.keys(cal.failuresByPerson || {}));
+      this._events = [
+        ...cal.events.filter((e) => !calFailed.has(e.personId)),
+        // A person with one working and one broken calendar keeps their
+        // previous day rather than showing a half-populated one.
+        ...prevEvents.filter((e) => calFailed.has(e.personId)),
+      ].sort((a, b) => {
+        if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+        return a.start - b.start;
+      });
+    }
 
-    const choreFailed = new Set(Object.keys(todo.failuresByPerson || {}));
-    this._chores = {};
-    for (const p of people) {
-      this._chores[p.id] = choreFailed.has(p.id)
-        ? prevChores[p.id] || []
-        : todo.choresByPerson[p.id] || [];
+    if (chores) {
+      const choreFailed = new Set(Object.keys(todo.failuresByPerson || {}));
+      this._chores = {};
+      for (const p of people) {
+        this._chores[p.id] = choreFailed.has(p.id)
+          ? prevChores[p.id] || []
+          : todo.choresByPerson[p.id] || [];
+      }
     }
 
     this._failuresByPerson = {};
-    for (const [pid, ents] of Object.entries(cal.failuresByPerson || {})) {
+    for (const [pid, ents] of Object.entries(cal?.failuresByPerson || {})) {
       (this._failuresByPerson[pid] ||= []).push(...ents);
     }
-    for (const [pid, ents] of Object.entries(todo.failuresByPerson || {})) {
+    for (const [pid, ents] of Object.entries(todo?.failuresByPerson || {})) {
       (this._failuresByPerson[pid] ||= []).push(...ents);
     }
 
-    const failures = [...cal.failures, ...todo.failures];
+    const failures = [...(cal?.failures || []), ...(todo?.failures || [])];
     this.model = {
       ...this.model,
       staleSince: failures.length ? (this.model.staleSince || now) : null,
@@ -164,21 +204,43 @@ export class HubData {
    */
   _rebuild(hass) {
     const completions = readCompletions(hass, this.config.taskmateChores);
+    const meta = choreMeta(hass, this.config.taskmateChores);
+    const sessions = readSessions(hass, this.config.taskmateChores);
+    const choreCals = new Set(this.config.choreCalendars || []);
+    const now = this.getNow();
 
     const people = this.config.people.map((p) => {
       const points = readPoints(hass, p);
       const withChild = { ...p, taskmateChildId: points?.childId || null };
-      return {
+      const personEntity = p.person ? hass?.states?.[p.person] : null;
+      const person = {
         ...withChild,
-        events: this._events.filter((e) => e.personId === p.id),
+        // Explicit picture, then the HA person's photo, then TaskMate's
+        // uploaded image; the TaskMate icon only when there is no photo.
+        picture: p.picture || personEntity?.attributes?.entity_picture || points?.avatarImage || null,
+        icon: points?.avatarIcon || null,
+        events: this._events.filter((e) => e.personId === p.id).map((e) => ({ ...e, isChore: choreCals.has(e.calendar) })),
         chores: this._chores[p.id] || [],
         completedToday: completionsForPerson(completions, withChild),
         points,
         failures: this._failuresByPerson[p.id] || [],
       };
+      // Merged once here so every view reads the same list.
+      person.tasks = buildTasks(person, {
+        now, tz: this._tz, maxCompleted: this.config.maxCompleted, meta, sessions,
+      });
+      person.progress = progressOf(person);
+      return person;
     });
 
-    this.model = { ...this.model, people };
+    // The meals calendar rides along as a hidden person so it shares the
+    // fetch, the failure handling and the window; it surfaces as model.meals.
+    const meals = people.find((p) => p.id === 'meals');
+    this.model = {
+      ...this.model,
+      people: people.filter((p) => p.id !== 'meals'),
+      meals: meals ? meals.events : [],
+    };
   }
 
   start() {
@@ -201,6 +263,48 @@ export class HubData {
   stop() {
     this._cancels.forEach((c) => c());
     this._cancels = [];
+  }
+
+  /**
+   * Completes a chore that needed a note, photo or count, through TaskMate's
+   * own action. Optimistic like `complete`, but rethrows so the sheet can stay
+   * open and show why — the child has typed or photographed something.
+   */
+  async submit(personId, choreId, fields) {
+    const hass = this.getHass();
+    const person = this.model.people.find((p) => p.id === personId);
+    const childId = person?.taskmateChildId;
+    const chore = (this._chores[personId] || []).find((c) => c.id === choreId);
+    if (!childId || !chore) throw new Error('not a TaskMate chore');
+    const previous = chore.status;
+    chore.status = 'completed';
+    this._rebuild(hass);
+    this.onChange();
+    try {
+      await submitChore(hass, choreId, childId, fields);
+    } catch (err) {
+      logFailure(`submit:${choreId}`, `could not submit "${chore.summary}"`, err);
+      chore.status = previous;
+      this._rebuild(this.getHass());
+      this.onChange();
+      throw err;
+    }
+  }
+
+  /**
+   * Start, pause or finish a timed chore. TaskMate's state comes back through
+   * the chores sensor, which hassChanged already watches; finishing changes
+   * the to-do list too, which triggers its own refetch.
+   */
+  async timer(personId, choreId, action) {
+    const person = this.model.people.find((p) => p.id === personId);
+    if (!person?.taskmateChildId) throw new Error('not a TaskMate chore');
+    try {
+      await timerAction(this.getHass(), action, choreId, person.taskmateChildId);
+    } catch (err) {
+      logFailure(`timer:${choreId}`, `could not ${action} the timer`, err);
+      throw err;
+    }
   }
 
   async complete(personId, choreId) {
