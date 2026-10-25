@@ -11,7 +11,7 @@ const VIEWS = ['agenda', 'columns', 'week'];
 const CALENDAR_VIEWS = ['schedule', 'week', 'month', 'day'];
 // What the old single `view` meant, now that the calendar has its own picker.
 const LEGACY_VIEW = { agenda: 'day', week: 'week', columns: 'schedule' };
-const HOMES = ['calendar', 'tasks', 'rewards'];
+const HOMES = ['calendar', 'tasks', 'rewards', 'screensaver'];
 const THEMES = ['auto', 'dark', 'light'];
 const WEEK_STARTS = ['monday', 'sunday', 'today'];
 
@@ -154,6 +154,9 @@ export function normaliseConfig(raw) {
   // The rail only ever shows screens that can work: Rewards needs the sensor.
   const screens = ['calendar', 'tasks'];
   if (cfg.taskmate_rewards) screens.push('rewards');
+  const screensaverRaw = cfg.screensaver;
+  const screensaverEnabled = screensaverRaw ? screensaverRaw.enabled !== false : false;
+  if (screensaverEnabled) screens.push('screensaver');
   screens.push('settings');
 
   return {
@@ -161,6 +164,19 @@ export function normaliseConfig(raw) {
     calendarView,
     home: screens.includes(home) ? home : 'calendar',
     screens,
+    screensaver: screensaverEnabled ? {
+      enabled: true,
+      timeout: screensaverRaw.timeout === 0 ? 0 : Math.max(5, Number(screensaverRaw.timeout ?? 60)),
+      icon: screensaverRaw.icon || 'mdi:image-frame',
+      name: screensaverRaw.name || 'Screensaver',
+      card: screensaverRaw.card ? {
+        type: screensaverRaw.card.type || 'custom:album-slideshow-card',
+        ...screensaverRaw.card,
+      } : (screensaverRaw.entity ? {
+        type: 'custom:album-slideshow-card',
+        entity: screensaverRaw.entity,
+      } : null),
+    } : null,
     familyName: cfg.family_name ? String(cfg.family_name) : null,
     choreCalendars,
     hideCompleted: Boolean(cfg.hide_completed),

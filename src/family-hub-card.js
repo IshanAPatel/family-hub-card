@@ -13,6 +13,7 @@ import './screens/rewards-screen.js';
 import './screens/settings-screen.js';
 import './screens/submit-sheet.js';
 import './screens/timer-sheet.js';
+import './screens/screensaver-screen.js';
 import { uploadPhoto, shrinkImage, friendlyError } from './data/taskmate-submit.js';
 import './add/add-dialog.js';
 import { availableTypes } from './add/add-controller.js';
@@ -37,6 +38,7 @@ const RAIL_ICONS = {
   calendar: 'mdi:calendar-blank-outline',
   tasks: 'mdi:check',
   rewards: 'mdi:star-outline',
+  screensaver: 'mdi:image-frame',
   settings: 'mdi:cog-outline',
 };
 
@@ -77,7 +79,7 @@ class FamilyHubCard extends LitElement {
     tokens,
     shared,
     css`
-      ha-card { background: var(--fh-page); color: var(--fh-text); border: none; border-radius: var(--fh-radius); overflow: hidden; font-family: var(--fh-sans); }
+      ha-card { background: var(--fh-page); color: var(--fh-text); border: none; border-radius: var(--fh-radius); overflow: hidden; font-family: var(--fh-sans); position: relative; }
       .app { display: grid; grid-template-columns: 68px 1fr; min-height: 480px; }
       .app[data-narrow='true'] { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
 
@@ -190,6 +192,10 @@ class FamilyHubCard extends LitElement {
     this._scheduleTick();
     this._onOnline = () => this._hub?.refresh();
     window.addEventListener('online', this._onOnline);
+    this._boundOnActivity = () => this._onUserActivity();
+    this.addEventListener('pointerdown', this._boundOnActivity, { passive: true });
+    window.addEventListener('keydown', this._boundOnActivity, { passive: true });
+    this._resetScreensaverTimer();
     // disconnectedCallback stops the hub's timers. A card inside a conditional
     // card, a popup or a dragged section is re-attached without setConfig, so
     // the timers have to come back here.
@@ -201,7 +207,12 @@ class FamilyHubCard extends LitElement {
     this._ro?.disconnect();
     clearTimeout(this._tickTimer);
     clearTimeout(this._returnTimer);
+    clearTimeout(this._screensaverTimer);
     window.removeEventListener('online', this._onOnline);
+    if (this._boundOnActivity) {
+      this.removeEventListener('pointerdown', this._boundOnActivity);
+      window.removeEventListener('keydown', this._boundOnActivity);
+    }
     this._hub?.stop();
   }
 
@@ -289,9 +300,42 @@ class FamilyHubCard extends LitElement {
     this._returnTimer = setTimeout(() => this._goHome(), secs * 1000);
   }
 
+  _onUserActivity() {
+    if (this._screen === 'screensaver') {
+      this._dismissScreensaver();
+      return;
+    }
+    this._resetScreensaverTimer();
+  }
+
+  _resetScreensaverTimer() {
+    clearTimeout(this._screensaverTimer);
+    const secs = this._config?.screensaver?.timeout;
+    if (!secs || secs <= 0 || !this._config?.screensaver?.enabled) return;
+    this._screensaverTimer = setTimeout(() => {
+      if (this._screen !== 'screensaver') {
+        this._lastActiveScreen = this._screen;
+        this._screen = 'screensaver';
+        this.requestUpdate();
+      }
+    }, secs * 1000);
+  }
+
+  _dismissScreensaver() {
+    clearTimeout(this._screensaverTimer);
+    const dest = this._lastActiveScreen || this._settings?.home || 'calendar';
+    this._screen = dest === 'screensaver' ? 'calendar' : dest;
+    this._afterInteraction();
+    this._resetScreensaverTimer();
+  }
+
   _setScreen(screen) {
+    if (screen !== 'screensaver') {
+      this._lastActiveScreen = screen;
+    }
     this._screen = screen;
     this._afterInteraction();
+    this._resetScreensaverTimer();
   }
 
   _setCalView(view) {
@@ -430,6 +474,13 @@ class FamilyHubCard extends LitElement {
 
     return html`
       <ha-card>
+        ${this._screen === 'screensaver' && this._config.screensaver?.enabled ? html`
+          <family-hub-screensaver-screen
+            .hass=${this._hass}
+            .config=${this._config.screensaver}
+            @screensaver-dismiss=${() => this._dismissScreensaver()}
+          ></family-hub-screensaver-screen>
+        ` : nothing}
         <div class="app" data-narrow=${String(this._narrow)}>
           <nav class="rail">
             <div class="logo">${(this._config.familyName || 'F').trim()[0].toUpperCase()}</div>
@@ -483,13 +534,17 @@ class FamilyHubCard extends LitElement {
   }
 
   _railButton(s, current, lang) {
+    const icon = (s === 'screensaver' && this._config.screensaver?.icon) || RAIL_ICONS[s];
+    const label = (s === 'screensaver' && this._config.screensaver?.name) || t(lang, s);
     return html`<button class=${s === current ? 'on' : ''} data-screen=${s} @click=${() => this._setScreen(s)}>
-      <ha-icon icon=${RAIL_ICONS[s]}></ha-icon>${t(lang, s)}
+      <ha-icon icon=${icon}></ha-icon>${label}
     </button>`;
   }
 
   _renderScreen(screen, model, now, lang, locale, tz, scheme) {
     switch (screen) {
+      case 'screensaver':
+        return nothing;
       case 'tasks':
         return html`<family-hub-tasks-screen
           .model=${model} .now=${now} .tz=${tz} .lang=${lang} .scheme=${scheme}

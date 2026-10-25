@@ -252,6 +252,26 @@ describe('screens and calendar views', () => {
     expect(normaliseConfig({ ...base, taskmate_rewards: 'sensor.taskmate_rewards' }).screens).toEqual(['calendar', 'tasks', 'rewards', 'settings']);
   });
 
+  it('offers screensaver screen when screensaver is configured', () => {
+    const cfg = normaliseConfig({
+      ...base,
+      screensaver: {
+        enabled: true,
+        timeout: 45,
+        entity: 'camera.album_slideshow_wedding_highlights',
+      },
+    });
+    expect(cfg.screens).toEqual(['calendar', 'tasks', 'screensaver', 'settings']);
+    expect(cfg.screensaver).toMatchObject({
+      enabled: true,
+      timeout: 45,
+      card: {
+        type: 'custom:album-slideshow-card',
+        entity: 'camera.album_slideshow_wedding_highlights',
+      },
+    });
+  });
+
   it('falls back to calendar when home names a screen that is not offered', () => {
     expect(normaliseConfig({ ...base, home: 'rewards' }).home).toBe('calendar');
   });
