@@ -79,8 +79,9 @@ class FamilyHubCard extends LitElement {
     tokens,
     shared,
     css`
-      ha-card { background: var(--fh-page); color: var(--fh-text); border: none; border-radius: var(--fh-radius); overflow: hidden; font-family: var(--fh-sans); position: relative; }
-      .app { display: grid; grid-template-columns: 68px 1fr; min-height: 480px; }
+      :host { display: block; height: 100%; min-height: 100%; width: 100%; }
+      ha-card { background: var(--fh-page); color: var(--fh-text); border: none; border-radius: var(--fh-radius); overflow: hidden; font-family: var(--fh-sans); position: relative; height: 100%; min-height: calc(100vh - var(--header-height, 56px)); display: flex; flex-direction: column; box-sizing: border-box; }
+      .app { display: grid; grid-template-columns: 68px 1fr; min-height: calc(100vh - var(--header-height, 56px)); flex: 1; height: 100%; }
       .app[data-narrow='true'] { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
 
       /* rail */
@@ -96,7 +97,7 @@ class FamilyHubCard extends LitElement {
       .app[data-narrow='true'] .rail button { min-height: 48px; padding: 6px 2px 4px; flex: 1; }
 
       /* main */
-      .main { display: flex; flex-direction: column; min-width: 0; }
+      .main { display: flex; flex-direction: column; min-width: 0; flex: 1; height: 100%; }
       .head { display: flex; align-items: center; gap: 14px; padding: 18px 24px 10px; flex-wrap: wrap; }
       .title { font-family: var(--fh-serif); font-size: 28px; letter-spacing: -.2px; display: flex; align-items: baseline; gap: 14px; min-width: 0; flex-wrap: wrap; }
       .title .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -114,7 +115,7 @@ class FamilyHubCard extends LitElement {
       .filters { display: flex; gap: 6px; }
       .filters .av { cursor: pointer; box-shadow: 0 0 0 2px var(--fh-page); }
 
-      .screen { flex: 1; min-height: 0; padding: 6px 24px 90px; position: relative; }
+      .screen { flex: 1; min-height: 0; padding: 6px 24px 24px; position: relative; display: flex; flex-direction: column; }
       .app[data-narrow='true'] .screen { padding: 4px 16px 90px; }
       .stale { font-size: 12px; color: var(--fh-star); padding: 0 0 8px; }
       .fab { position: absolute; right: 22px; bottom: 22px; width: 56px; height: 56px; border-radius: 50%; background: var(--fh-fab); color: #fff; font-size: 30px; display: grid; place-items: center; box-shadow: 0 8px 24px rgba(45,108,223,.35); }

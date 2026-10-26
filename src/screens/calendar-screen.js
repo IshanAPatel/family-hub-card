@@ -39,9 +39,11 @@ export class FamilyHubCalendarScreen extends LitElement {
   static styles = [
     shared,
     css`
+      :host { display: flex; flex-direction: column; flex: 1; height: 100%; }
       /* schedule */
-      .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; }
+      .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; flex: 1; height: 100%; }
       .days[data-narrow='true'] { grid-template-columns: 1fr; }
+      .day { display: flex; flex-direction: column; height: 100%; }
       .day .dh { display: flex; align-items: baseline; gap: 8px; font-family: var(--fh-serif); font-size: 22px; padding: 0 2px 2px; }
       .day .dh .num { font-weight: 600; }
       .day.today .dh .num { background: var(--fh-today); color: #fff; border-radius: 50%; width: 32px; height: 32px; display: inline-grid; place-items: center; font-size: 18px; transform: translateY(-2px); }
