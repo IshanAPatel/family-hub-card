@@ -61,7 +61,6 @@ export class FamilyHubScreensaverScreen extends LitElement {
       entity: this.config?.entity || 'camera.album_slideshow_wedding_highlights',
     };
     return {
-      aspect_ratio: 'auto',
       fit: 'cover',
       ...rawCard,
       aspect_ratio: rawCard.aspect_ratio || 'auto',
@@ -139,7 +138,7 @@ export class FamilyHubScreensaverScreen extends LitElement {
     }
   }
 
-  _handleClick(e) {
+  _handleClick(_e) {
     // Interacting with the screen dismisses screensaver and wakes the hub
     this.dispatchEvent(new CustomEvent('screensaver-dismiss', { bubbles: true, composed: true }));
   }
