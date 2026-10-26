@@ -176,6 +176,7 @@ export function normaliseConfig(raw) {
         type: 'custom:album-slideshow-card',
         entity: screensaverRaw.entity,
       } : null),
+      dimming: screensaverRaw.dimming || null,
     } : null,
     familyName: cfg.family_name ? String(cfg.family_name) : null,
     choreCalendars,

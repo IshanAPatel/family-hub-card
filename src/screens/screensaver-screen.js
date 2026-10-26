@@ -4,6 +4,7 @@ export class FamilyHubScreensaverScreen extends LitElement {
   static properties = {
     hass: { attribute: false },
     config: { attribute: false },
+    _dimmingFilter: { state: true },
   };
 
   static styles = css`
@@ -33,6 +34,7 @@ export class FamilyHubScreensaverScreen extends LitElement {
       flex: 1;
       display: flex;
       flex-direction: column;
+      transition: filter 1s ease-in-out;
     }
     .card-slot > * {
       width: 100% !important;
@@ -42,6 +44,48 @@ export class FamilyHubScreensaverScreen extends LitElement {
     }
   `;
 
+  connectedCallback() {
+    super.connectedCallback();
+    this._updateDimmingFilter();
+    this._dimmingInterval = setInterval(() => this._updateDimmingFilter(), 60000);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._dimmingInterval) {
+      clearInterval(this._dimmingInterval);
+      this._dimmingInterval = null;
+    }
+  }
+
+  _getDimmingFilter() {
+    const dimCfg = this.config?.dimming || {};
+    const dayBrightness = dimCfg.day ?? 0.85;
+    const eveningBrightness = dimCfg.evening ?? 0.60;
+    const nightBrightness = dimCfg.night ?? 0.30;
+    const nightFilterEnabled = dimCfg.night_filter !== false;
+
+    const now = new Date();
+    const hour = now.getHours() + now.getMinutes() / 60;
+
+    // Day: 06:30 to 18:00 (6:30 AM to 6:00 PM)
+    if (hour >= 6.5 && hour < 18.0) {
+      return `brightness(${dayBrightness})`;
+    }
+    // Evening: 18:00 to 22:00 (6:00 PM to 10:00 PM)
+    if (hour >= 18.0 && hour < 22.0) {
+      return `brightness(${eveningBrightness}) sepia(0.12)`;
+    }
+    // Night: 22:00 to 06:30 (10:00 PM to 6:30 AM)
+    return nightFilterEnabled
+      ? `brightness(${nightBrightness}) sepia(0.4) saturate(1.25) hue-rotate(-15deg)`
+      : `brightness(${nightBrightness})`;
+  }
+
+  _updateDimmingFilter() {
+    this._dimmingFilter = this._getDimmingFilter();
+  }
+
   firstUpdated() {
     this._mountCard();
   }
@@ -50,8 +94,11 @@ export class FamilyHubScreensaverScreen extends LitElement {
     if (changedProperties.has('hass') && this._cardEl) {
       this._cardEl.hass = this.hass;
     }
-    if (changedProperties.has('config') && this._cardEl) {
-      this._updateCardConfig();
+    if (changedProperties.has('config')) {
+      this._updateDimmingFilter();
+      if (this._cardEl) {
+        this._updateCardConfig();
+      }
     }
   }
 
@@ -146,7 +193,7 @@ export class FamilyHubScreensaverScreen extends LitElement {
   render() {
     return html`
       <div class="container" @pointerdown=${this._handleClick}>
-        <div class="card-slot"></div>
+        <div class="card-slot" style="filter: ${this._dimmingFilter || this._getDimmingFilter()};"></div>
       </div>
     `;
   }
