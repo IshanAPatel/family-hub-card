@@ -24,17 +24,21 @@ export class FamilyHubScreensaverScreen extends LitElement {
       width: 100%;
       height: 100%;
       display: flex;
+      flex-direction: column;
+      flex: 1;
     }
     .card-slot {
       width: 100%;
       height: 100%;
       flex: 1;
       display: flex;
+      flex-direction: column;
     }
     .card-slot > * {
-      width: 100%;
-      height: 100%;
-      flex: 1;
+      width: 100% !important;
+      height: 100% !important;
+      flex: 1 !important;
+      display: block !important;
     }
   `;
 
@@ -52,9 +56,15 @@ export class FamilyHubScreensaverScreen extends LitElement {
   }
 
   _cardConfig() {
-    return this.config?.card || {
+    const rawCard = this.config?.card || {
       type: 'custom:album-slideshow-card',
       entity: this.config?.entity || 'camera.album_slideshow_wedding_highlights',
+    };
+    return {
+      aspect_ratio: 'auto',
+      fit: 'cover',
+      ...rawCard,
+      aspect_ratio: rawCard.aspect_ratio || 'auto',
     };
   }
 
@@ -92,6 +102,28 @@ export class FamilyHubScreensaverScreen extends LitElement {
       el = document.createElement('div');
       el.textContent = 'Album Slideshow unavailable';
     }
+
+    // Ensure inner styles stretch full-height without margins or rounded corners
+    const applyInnerStyles = () => {
+      try {
+        if (el.shadowRoot && !el.shadowRoot.querySelector('#fh-ss-style')) {
+          const style = document.createElement('style');
+          style.id = 'fh-ss-style';
+          style.textContent = `
+            :host { height: 100% !important; width: 100% !important; display: block !important; }
+            ha-card { height: 100% !important; width: 100% !important; border-radius: 0 !important; border: none !important; aspect-ratio: auto !important; }
+            .stage { height: 100% !important; width: 100% !important; border-radius: 0 !important; }
+          `;
+          el.shadowRoot.appendChild(style);
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    applyInnerStyles();
+    requestAnimationFrame(applyInnerStyles);
+    setTimeout(applyInnerStyles, 200);
 
     this._cardEl = el;
     slot.appendChild(el);
