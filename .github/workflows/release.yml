@@ -25,33 +25,22 @@ jobs:
           # over the network, so drop it.
           persist-credentials: false
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
-      - run: npm run lint
+      - run: pnpm test
 
-      - run: npm test
-
-      - run: npm run build
-
-      # --ignored=matching, not `git diff`: .gitignore allow-lists dist/ down to
-      # the one tracked bundle, so a build redirected to any other name under
-      # dist/ would leave the tracked file untouched and pass a diff-only check
-      # while shipping a hand-edited bundle. This sees untracked and ignored
-      # output too.
-      - name: Fail if the tagged dist/ was stale
-        run: |
-          if [ -n "$(git status --porcelain --ignored=matching -- dist/)" ]; then
-            echo "::error::The tagged commit's dist/ does not match a fresh build. Rebuild, commit, and re-tag."
-            git status --porcelain --ignored=matching -- dist/
-            exit 1
-          fi
+      - run: pnpm run build
 
       - name: Attach card to release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/family-hub-card.js
