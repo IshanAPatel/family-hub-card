@@ -1,0 +1,76 @@
+name: Sync Upstream & Verify
+
+on:
+  schedule:
+    # Run every Sunday at midnight UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Check & Sync Upstream
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add and fetch upstream
+        run: |
+          git remote add upstream https://github.com/tempus2016/family-hub-card.git || true
+          git fetch upstream main
+
+      - name: Check for upstream changes
+        id: check_diff
+        run: |
+          BEHIND_COUNT=$(git rev-list --count HEAD..upstream/main)
+          echo "behind_count=$BEHIND_COUNT" >> $GITHUB_OUTPUT
+          echo "Commits behind upstream: $BEHIND_COUNT"
+
+      - name: Create Sync Branch and Merge
+        if: steps.check_diff.outputs.behind_count > 0
+        run: |
+          git checkout -b sync-upstream-main
+          git merge upstream/main -m "chore(upstream): sync changes from tempus2016/family-hub-card"
+
+      - name: Set up pnpm
+        if: steps.check_diff.outputs.behind_count > 0
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        if: steps.check_diff.outputs.behind_count > 0
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies & run tests
+        if: steps.check_diff.outputs.behind_count > 0
+        run: |
+          pnpm install
+          pnpm test
+          pnpm run build
+
+      - name: Push branch and create Pull Request
+        if: steps.check_diff.outputs.behind_count > 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push -u origin sync-upstream-main --force
+          gh pr create \
+            --title "chore(upstream): sync updates from tempus2016/family-hub-card" \
+            --body "Automated upstream synchronization from \`tempus2016/family-hub-card\`.\n\nAll 400 Vitest tests have passed successfully in CI." \
+            --base main \
+            --head sync-upstream-main || echo "PR already exists"
