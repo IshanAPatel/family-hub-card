@@ -33,8 +33,9 @@ export class FamilyHubTasksScreen extends LitElement {
   static styles = [
     shared,
     css`
-      .cols { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 14px; align-items: start; }
-      .pcol { background: var(--tint-soft); border-radius: var(--fh-radius); padding: 16px 14px 14px; }
+      :host { display: flex; flex-direction: column; flex: 1; height: 100%; }
+      .cols { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 14px; align-items: stretch; flex: 1; height: 100%; }
+      .pcol { background: var(--tint-soft); border-radius: var(--fh-radius); padding: 16px 14px 14px; height: 100%; }
       .ph { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: center; }
       .ph .nm { font-family: var(--fh-serif); font-size: 24px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .ph .pills { grid-column: 2; display: flex; gap: 8px; flex-wrap: wrap; }
