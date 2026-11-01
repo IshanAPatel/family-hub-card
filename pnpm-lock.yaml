@@ -28,7 +28,7 @@ importers:
         specifier: ^17.13.0
         version: 17.13.0
       happy-dom:
-        specifier: ^21.0.3
+        specifier: ^21.0.4
         version: 21.0.4
       rollup:
         specifier: ^4.64.5
